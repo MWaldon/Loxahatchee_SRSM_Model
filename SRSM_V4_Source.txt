@@ -1,0 +1,1407 @@
+;%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+;%																		 %
+;%	PROJECT: 	Arthur R. Marshall Loxahatchee National Wildlife Refuge Simple Refuge Screening Model (SRSM) version 4			 %
+;%	DATE:		March 31, 2009										 				 %
+;%	AUTHORS:	Ehab Meselhe(1), William Roth(1), Mike Waldon(2)									 %
+;%			(1) Institute of Coastal Ecology and Engineering, University of Louisiana at Lafayette, LA 70504 				 %
+;%			(2) Everglades Program Team, A.R.M. Loxahatchee National Wildlife Refuge, Boynton Beach, FL 33473 			 %
+;%																		 %
+;%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+;_____RUNTIME OPTIONS
+METHOD RK4
+STARTTIME =  0 {JAN95}; 3287 {JAN04}; 1826 {JAN00}; 
+STOPTIME=   4747 {DEC07}; 3652 {DEC04}; 4382 {DEC06};
+DT = 0.005
+DTOUT = 1
+
+;_____SIMULATION OPTIONS
+;  User should insure that outflow calculation, initial condition sets,
+;  and all scaling factors are set to the desired values 
+
+;OPTION FOR OUTFLOW
+CalcQRo = 1; 0 - Use historic outflow, 1 - Use calculated outflow
+
+;FLOW SCALING FACTORS
+Qinscale = 1.0; scale inflow by this factor (dimensionless)
+QWSmult = 1.0; Used to scale watersupply demand; Represents historic average over ECPBase average water supply
+RSQfact = 1.0; Can be used to reduce the intensity of the regulatory release (dimensionless)
+
+;LOAD SCALING FACTORS
+SCALE_TPLOAD = 1.0; factor applies to total load
+SCALE_CLLOAD = 1.0; factor applies to total load
+SCALE_SO4LOAD = 1.0; factor applies to total load
+
+;USE CONSTANT INFLOW CONCENTRATION
+constTPConc = 0; 0 - Use concentration timeseries from input file, 1 - Use constant concentration
+constCLConc = 0; 0 - Use concentration timeseries from input file, 1 - Use constant concentration
+constSO4Conc = 0; 0 - Use concentration timeseries from input file, 1 - Use constant concentration
+
+constTP_CONC = 0.010; (mg/L) target value for all TP inflow concentration to the refuge
+constCL_CONC = 80; (mg/L)
+constSO4_CONC = 30; (mg/L)
+
+;INITIAL CONDITION SET
+SET =   1 {JAN95}; 2 {JAN04}; 3 {JAN00};  
+
+Init_Year = IF SET = 1 THEN 1995 ELSE 2004; 2000
+
+Ecinit = IF SET = 1 THEN Ecinit_1995 ELSE Ecinit_2004; 2000
+Eminit = IF SET = 1 THEN Eminit_1995 ELSE Eminit_2004; 2000
+
+INIT_Conc[cl..tp, 1..ncell, emerg..pew] = IF SET = 1 THEN Conc_1995[i,j,k] ELSE Conc_2004[i,j,k]; 2000
+
+;_____TIME
+
+Year = Init_Year + (Time/365.25); useful for plotting in Madonna only ignores leap years may be off by 1 day (years)
+DayofYear = mod(TIME,365.25); Julian day of year used in regulation schedule calculation
+day = TIME + 1
+
+;=======================================================================================================
+;===========================================  IMPORTED DATASETS  ========================================
+;=======================================================================================================
+
+;_____PRECIPITATION & EVAPOTRANSPIRATION
+
+P = #PET(day,1); (m/day)
+ET = #PET(day,2); (m/day)
+
+;_____FLOW STRUCTURES (UNITS m3/day)
+
+S39_out		= #OUTFLOW(day,1);
+G94A_out		= #OUTFLOW(day,2)
+G94B_out		= #OUTFLOW(day,3)
+G94C_out		= #OUTFLOW(day,4)
+G300_out 		= #OUTFLOW(day,8)
+S5AS_out		= #OUTFLOW(day,9)
+G301_out		= #OUTFLOW(day,11)
+G338_out		= #OUTFLOW(day,15)
+S10E_out 		= #OUTFLOW(day,16)
+S10D_out 		= #OUTFLOW(day,17)
+S10C_out 		= #OUTFLOW(day,18)
+S10A_out 		= #OUTFLOW(day,19)
+
+G94A_in		= #INFLOW(day,2)
+G94C_in		= #INFLOW(day,4)
+G94D_in		= #INFLOW(day,5); ACME2
+ACME1_in 		= #INFLOW(day,6)
+S362_in	 		= #INFLOW(day,7)
+G300_in 		= #INFLOW(day,8)
+S5AS_in 		= #INFLOW(day,9)
+S5A_in	 		= #INFLOW(day,10)
+G301_in 		= #INFLOW(day,11)
+G310_in		= #INFLOW(day,12)
+G251_in 		= #INFLOW(day,13)
+S6_in	 		= #INFLOW(day,14)
+G338_in 		= #INFLOW(day,15)
+
+;_____SUPPLEMENTARY WATER RELEASE (UNITS m3/day)
+
+S10A_hurricane = #Regulation(day,1); release for 2006 hurricane season
+S10C_hurricane = #Regulation(day,2); release for 2006 hurricane season
+S10D_hurricane = #Regulation(day,3); release for 2006 hurricane season
+S39_WS = #Regulation(day,4); water supply releases from 1995 to 2007
+
+;_____CONCENTRATIONS (UNITS mg/L)
+
+G94A_TP 		= IF constTPConc = 0 THEN #TP(day,1) ELSE constTP_CONC; use values from G94B due to missing values
+G94C_TP 		= IF constTPConc = 0 THEN #TP(day,2) ELSE constTP_CONC; use values from G94B due to missing values
+G94D_TP 		= IF constTPConc = 0 THEN #TP(day,3) ELSE constTP_CONC
+ACME1_TP	 	= IF constTPConc = 0 THEN #TP(day,4) ELSE constTP_CONC
+S362_TP	 	= IF constTPConc = 0 THEN #TP(day,5) ELSE constTP_CONC
+G300_TP 		= IF constTPConc = 0 THEN #TP(day,6) ELSE constTP_CONC
+S5AS_TP 		= IF constTPConc = 0 THEN #TP(day,7) ELSE constTP_CONC
+S5A_TP 		= IF constTPConc = 0 THEN #TP(day,8) ELSE constTP_CONC
+G301_TP 		= IF constTPConc = 0 THEN #TP(day,9) ELSE constTP_CONC
+G310_TP 		= IF constTPConc = 0 THEN #TP(day,10) ELSE constTP_CONC
+G251_TP 		= IF constTPConc = 0 THEN #TP(day,11) ELSE constTP_CONC; Data from DBHYDRO ENR012
+S6_TP	 		= IF constTPConc = 0 THEN #TP(day,12) ELSE constTP_CONC
+G338_TP	 	= IF constTPConc = 0 THEN #TP(day,13) ELSE constTP_CONC; no data for G338, use S6
+
+G94A_Cl 		= IF constCLConc = 0 THEN #Cl(day,1) ELSE constCL_CONC; use values from G94B due to missing values
+G94C_Cl 		= IF constCLConc = 0 THEN #Cl(day,2) ELSE constCL_CONC; use values from G94B due to missing values
+G94D_Cl 		= IF constCLConc = 0 THEN #Cl(day,3) ELSE constCL_CONC
+ACME1_Cl	 	= IF constCLConc = 0 THEN #Cl(day,4) ELSE constCL_CONC
+S362_Cl	 	= IF constCLConc = 0 THEN #Cl(day,5) ELSE constCL_CONC
+G300_Cl 		= IF constCLConc = 0 THEN #Cl(day,6) ELSE constCL_CONC
+S5AS_Cl 		= IF constCLConc = 0 THEN #Cl(day,7) ELSE constCL_CONC
+S5A_Cl 		= IF constCLConc = 0 THEN #Cl(day,8) ELSE constCL_CONC
+G301_Cl 		= IF constCLConc = 0 THEN #Cl(day,9) ELSE constCL_CONC
+G310_Cl 		= IF constCLConc = 0 THEN #Cl(day,10) ELSE constCL_CONC
+G251_Cl 		= IF constCLConc = 0 THEN #Cl(day,11) ELSE constCL_CONC; Data from DBHYDRO ENR012
+S6_Cl	 		= IF constCLConc = 0 THEN #Cl(day,12) ELSE constCL_CONC
+G338_Cl	 	= IF constCLConc = 0 THEN #Cl(day,13) ELSE constCL_CONC; no data for G338
+
+G94A_SO4 		= IF constSO4Conc = 0 THEN #SO4(day,1) ELSE constSO4_CONC; use values from G94B due to missing values
+G94C_SO4 		= IF constSO4Conc = 0 THEN #SO4(day,2) ELSE constSO4_CONC; use values from G94B due to missing values
+G94D_SO4	 	= IF constSO4Conc = 0 THEN #SO4(day,3) ELSE constSO4_CONC
+ACME1_SO4	 	= IF constSO4Conc = 0 THEN #SO4(day,4) ELSE constSO4_CONC
+S362_SO4	 	= IF constSO4Conc = 0 THEN #SO4(day,5) ELSE constSO4_CONC
+G300_SO4 		= IF constSO4Conc = 0 THEN #SO4(day,6) ELSE constSO4_CONC
+S5AS_SO4 		= IF constSO4Conc = 0 THEN #SO4(day,7) ELSE constSO4_CONC
+S5A_SO4 		= IF constSO4Conc = 0 THEN #SO4(day,8) ELSE constSO4_CONC
+G301_SO4 		= IF constSO4Conc = 0 THEN #SO4(day,9) ELSE constSO4_CONC; No SO4 data for G301
+G310_SO4 		= IF constSO4Conc = 0 THEN #SO4(day,10) ELSE constSO4_CONC
+G251_SO4 		= IF constSO4Conc = 0 THEN #SO4(day,11) ELSE constSO4_CONC; Data from DBHYDRO ENR012
+S6_SO4 		= IF constSO4Conc = 0 THEN #SO4(day,12) ELSE constSO4_CONC
+G338_SO4 		= IF constSO4Conc = 0 THEN #SO4(day,13) ELSE constSO4_CONC; no data for G338
+
+;FLOW & CONSTITUENT LOAD CALCULATIONS
+
+;_____TOTAL FLOW
+
+QoutHistoric 		= S39_out + G94A_out + G94B_out + G94C_out + G300_out + S5AS_out + G301_out + G338_out + S10E_out + S10D_out + S10C_out + S10A_out
+Qinflow 			= G94A_in + G94C_in + G94D_in + ACME1_in + S362_in + G300_in + S5AS_in + S5A_in + G301_in + G310_in + G251_in + S6_in + G338_in
+Qout_hurricane = S10A_hurricane + S10C_hurricane + S10D_hurricane
+
+;_____LOAD
+
+G94A_TPLOAD 		= G94A_TP*G94A_in
+G94C_TPLOAD 		= G94C_TP*G94C_in
+G94D_TPLOAD 		= G94D_TP*G94D_in
+ACME1_TPLOAD 	= ACME1_TP*ACME1_in
+S362_TPLOAD 		= S362_TP*S362_in
+G300_TPLOAD		= G300_TP*G300_in
+S5AS_TPLOAD		= S5AS_TP*S5AS_in
+S5A_TPLOAD		= S5A_TP*S5A_in
+G301_TPLOAD		= G301_TP*G301_in
+G310_TPLOAD		= G310_TP*G310_in
+G251_TPLOAD		= G251_TP*G251_in
+S6_TPLOAD		= S6_TP*S6_in
+G338_TPLOAD		= G338_TP*G338_in
+
+G94A_ClLOAD 		= G94A_Cl*G94A_in
+G94C_ClLOAD 		= G94C_Cl*G94C_in
+G94D_ClLOAD 		= G94D_Cl*G94D_in
+ACME1_ClLOAD 	= ACME1_Cl*ACME1_in
+S362_ClLOAD 		= S362_Cl*S362_in
+G300_ClLOAD		= G300_Cl*G300_in
+S5AS_ClLOAD		= S5AS_Cl*S5AS_in
+S5A_ClLOAD		= S5A_Cl*S5A_in
+G301_ClLOAD		= G301_Cl*G301_in
+G310_ClLOAD		= G310_Cl*G310_in
+G251_ClLOAD		= G251_Cl*G251_in
+S6_ClLOAD		= S6_Cl*S6_in
+G338_ClLOAD		= G338_Cl*G338_in
+
+G94A_SO4LOAD 	= G94A_SO4*G94A_in
+G94C_SO4LOAD 	= G94C_SO4*G94C_in
+G94D_SO4LOAD 	= G94D_SO4*G94D_in
+ACME1_SO4LOAD 	= ACME1_SO4*ACME1_in
+S362_SO4LOAD	= S362_SO4*S362_in
+G300_SO4LOAD	= G300_SO4*G300_in
+S5AS_SO4LOAD	= S5AS_SO4*S5AS_in
+S5A_SO4LOAD		= S5A_SO4*S5A_in
+G301_SO4LOAD	= G301_SO4*G301_in
+G310_SO4LOAD	= G310_SO4*G310_in
+G251_SO4LOAD	= G251_SO4*G251_in
+S6_SO4LOAD		= S6_SO4*S6_in
+G338_SO4LOAD	= G338_SO4*G338_in
+
+;_____TOTAL LOAD
+
+TPLOAD = SCALE_TPLOAD * (G94A_TPLOAD + G94C_TPLOAD + G94D_TPLOAD + ACME1_TPLOAD + S362_TPLOAD + G300_TPLOAD + S5AS_TPLOAD + S5A_TPLOAD + G301_TPLOAD + G310_TPLOAD + G251_TPLOAD + S6_TPLOAD + G338_TPLOAD)
+
+ClLOAD = SCALE_CLLOAD * (G94A_ClLOAD + G94C_ClLOAD + G94D_ClLOAD + ACME1_ClLOAD + S362_ClLOAD + G300_ClLOAD + S5AS_ClLOAD + S5A_ClLOAD + G301_ClLOAD + G310_ClLOAD + G251_ClLOAD + S6_ClLOAD + G338_ClLOAD)
+
+SO4LOAD = SCALE_SO4LOAD * (G94A_SO4LOAD + G94C_SO4LOAD + G94D_SO4LOAD + ACME1_SO4LOAD + S362_SO4LOAD + G300_SO4LOAD + S5AS_SO4LOAD + S5A_SO4LOAD + G301_SO4LOAD + G310_SO4LOAD + G251_SO4LOAD + S6_SO4LOAD + G338_SO4LOAD)
+
+;_____FLOW WEIGHTED MEAN CONCENTRATION
+
+FWMC_TP = IF Qin = 0 THEN 0 ELSE TPLOAD/Qin
+FWMC_CL = IF Qin = 0 THEN 0 ELSE ClLOAD/Qin
+FWMC_SO4 = IF Qin = 0 THEN 0 ELSE SO4LOAD/Qin
+
+DailyFWMC_TP = CONVEYOR(FWMC_TP,1)
+DailyFWMC_CL = CONVEYOR(FWMC_CL,1)
+DailyFWMC_SO4 = CONVEYOR(FWMC_SO4,1)
+
+;=======================================================================================================
+;============================================  STAGE MODEL  =============================================
+;=======================================================================================================
+
+;_____MODEL PARAMETERS 
+
+Canal_Area = 4033485.4677557; Canal surface area (m2)
+Marsh_Area = 560021212.842; Marsh surface area (m2)
+
+Eo = 4.62; Marsh bottom elevation (m)
+Eoc = 3.24; Canal bottom elevation (m)
+Eb = 3.5; water stage outside Refuge (m)
+
+lseep = 0.042 ; Canal seepage constant (1/day)
+rseep = 0.000349075695574036 {0.000131526501735883}; Marsh seepage constant (1/day)
+
+B = 30 ;original value; Transport coefficient (Kadlec & Knight 1996) (1/m/d)
+Radius = 13000; Average marsh radius (m)
+W = 81500; Average marsh width (m)
+
+ETMin = 0.20; ET reduction factor; based on depth; (dimensionless)
+HET = 0.25; ET depth reduction boundary (m); 0.82 (ft)
+
+;_____INITIAL VALUES
+
+;INITIAL STAGE SETS
+
+Ecinit_1995 = 5.24 ; Initial canal stage (m) on 1/1/1995
+Eminit_1995 = 5.225796; Initial marsh stage (m) on 1/1/1995
+
+Ecinit_2000 = 5.16901471; Initial canal stage (m) on 1/1/2000, average for previous month
+Eminit_2000 = 5.126195226; Initial marsh stage (m) on 1/1/2000, average for previous month
+
+Ecinit_2004 = 5.10; Initial canal stage (m) on 1/1/2004
+Eminit_2004 = 5.09; Initial marsh stage (m) on 1/1/2004
+
+;_____VOLUME-STAGE RELATIONSHIP CALCULATIONS
+
+;Stage (m) NGVD 29 is currently calculated using constant area
+
+;                           ( Vc(m3), Ec(m))  Area Canal = 4033485.467 (m2)
+Ec = GRAPH (Vc) (-13068492.91,0) (0, 3.24 {Canal bottom elevation}) (27266361.76, 10)
+
+;                             ( Vm(m3), Em(m))  Area Marsh = 560021212.8 (m2)
+Em = GRAPH (Vm) (-2587298003, 0) (0, 4.62 {Marsh bottom elevation}) (3012914125, 10)
+
+;_____REGULATION SCHEDULE
+
+A1FloorFeet = GRAPH(DayofYear) (0,17.2) (132, 15.75) (188, 15.75) (267, 17.5) (334, 17.5) (366, 17.2); Floor of A1 Zone (ft)
+BFloorFeet = 14; Floor of B Zone (ft)
+
+A1Floor = A1FloorFeet*0.3048; A1 Floor (m)
+BFloor = BFloorFeet*0.3048; B Floor (m)
+
+;_____SRSM REGULATORY RELEASE
+ 
+Qin = Qinscale * Qinflow; (m3/day)
+QWaterSupply = S39_WS * QWSmult; Water supply flows, import data if needed (m3/day)
+
+
+;_____REGULATORY RELEASE CALCULATIONS 
+
+Qout = IF (CalcQRo = 0) THEN (QoutHistoric) ELSE (QoutCalc + QWaterSupply + Qout_HistStruct + Qout_hurricane)
+
+Qout_HistStruct = G94A_out + G94B_out + G94C_out + G300_out + S5AS_out + G301_out + G338_out; Structures in the north and east not involved with water supply
+
+;Regulatory release (thousand m3/d) as a function of difference between stage and A1 zone floor (ft). 
+;   This is based on historic S10 flow 1/1/1995 - 8/31/2007 initially copied from file CA1-elevations.xls 
+
+QoutCalcS10 = GRAPH((Ec-A1Floor)/0.3048) (-1.3,0) (-1.2,32) (-1.1,113) (-1,64) (-0.9,94) (-0.8,148) (-0.7,311) (-0.6,238) (-0.5,175) (-0.4,328) (-0.3,288) (-0.2,450) (-0.1,765) (0,957) (0.1,1323) (0.2,2274) (0.3,3188) (0.4,2832) (0.5,4469) (0.6,5901) (0.7,7406) (0.8,6602) (0.9,6356) (1,8116)
+
+{;Regulatory release (thousand m3/d) as a function of difference between calculated stage and A1 zone floor (ft).
+;   This is based on historic S10 flow 1/1/1995 - 12/31/2007 and the correlation with measured stage at 1-8C
+
+QoutCalcS10 = GRAPH((Ec-A1Floor)/0.3048) (-1.3,0) (-1.2,80) (-1.1,247) (-1,61) (-0.9,872) (-0.8,331) (-0.7,557) (-0.6,511) (-0.5,312) (-0.4,398) (-0.3,293) (-0.2,631) (-0.1,923) (0,1145) (0.1,1559) (0.2,2522) (0.3,3323) (0.4,2928) (0.5,5277) (0.6,4713) (0.7,7141) (0.8,6621) (0.9,6240) (1,7918)}
+
+;Reduction factor & Scale up S10 regulatory flows by ratio of total regulatory release/S10, convert thousand m3/d to m3/d
+QoutCalc =RSQfact*(196.7/144.8)*1000*QoutCalcS10; scale factor includes S39 in the calculation
+
+;_____PROCESSES
+
+Exchange_Flow = Const*H^(3)*(Ec-Em); Flow from canal to marsh (m3/day)
+Const = B*10^7*(W/Radius); Constant used in the Power Law flow equation (1/m/day)
+
+Gc = MAX(lseep*mindepth, lseep*(Ec-Eb)); Canal seepage loss (m/day)
+Gm = MAX(rseep*mindepth, rseep*(Em-Eb)); Marsh seepage loss (m/day)
+
+fet = MAX(ETMin,MIN(1,(H/HET))); Reduction factor for marsh ET (dimensionless)
+H = MAX(0,Em-Eo); Marsh water depth (m); this value is limited to zero or dry
+Hc = Ec - Eoc; Canal water depth (m)
+Corrected_ET = fet*ET; (m/day)
+
+ETc = ET; ET (uncorrected) in the canal (m/day)
+ETm = Corrected_ET; ET in the marsh (m/day)
+
+NetInFlow = Qin - Qout; total inflow - total outflow
+MinInFlow = MAX(0, NetInFlow+QWaterSupply); assumes inflow diverted as much as possible, used to find min water needs that maintains water budget
+
+;_____INITIAL CONDITIONS 
+
+INIT vol_canal = (Ecinit - Eoc) * Canal_Area; Initial Canal Volume (m3)
+INIT vol_marsh = (Eminit - Eo) * Marsh_Area; Initial Marsh Volume (m3)
+
+;_____DIFFERENTIAL EQUATIONS
+ 
+d/dt(vol_canal) = NetInFlow - Exchange_Flow +((P- Gc - ETc)*Canal_Area); Rate of canal volume increase (m3/day)
+d/dt(vol_marsh) =  Exchange_Flow +((P - Gm - ETm)*Marsh_Area); Rate of marsh volume increase (m3/day)
+
+;_____MINIMUM VOLUME THRESHOLD
+
+mincanal_vol = mindepth*Canal_Area
+mincell_vol[1..ncell] = mindepth * area[i]
+minmarsh_vol = arraysum(mincell_vol[*])
+
+;_____VOLUME VALUES USED IN CALCULATIONS
+
+Vc = MAX(vol_canal, mincanal_vol)
+Vm = MAX(vol_marsh, minmarsh_vol)
+
+;=======================================================================================================
+;========================================  WATER QUALITY  ================================================
+;=======================================================================================================
+
+;_____DEFINE CONSTANTS
+
+;CONVERSION FACTORS
+gm_tonne = 1.0e-6; convert grams to metric tons
+meter_ft = (1/0.3048); convert 
+
+;DEFINE ARRAYS
+
+   ;REFUGE GEOMETRY
+     ncell=4; total number of cells, canal is cell ncell
+     nm=ncell-1; number of marsh cells
+     canal=ncell; cell number for canal (there is only 1 canal cell)
+
+   ;CONSTITUENTS
+     nconstit= 3
+     cl= 1; chloride; conservative
+     so4=2; sulfate; monod relationship
+     tp= 3; tp modeled with DMSTA equations
+
+   ;DMSTA CALIBRATION SETS
+     emerg = 1; Emergent marsh
+     pew = 2; Pre-existing wetland
+
+;COMPARTMENT SURFACE AREA
+          area[1]=     89359148.07
+          area[2]=   224100184.961
+          area[3]=   246561879.811
+          area[canal]= 4033485.46677577
+
+          area_total= ARRAYSUM(area[*])
+          area_marsh= area_total - area[canal]
+
+;WATER BUDGET CONSTANTS
+     evap= 0.65; fraction of ET that is evaporation
+     transp= 1-evap
+
+;AERIAL DEPOSITION CONSTANTS 
+   WetDep[cl]= 2.00; mg/L, Chloride Concentration from Rainfall
+   DD[cl]= 1136/365.25; {500}mg/m2-day, dry deposition of Chloride
+
+   WetDep[so4]= 1.00; mg/L, so4 Concentration from Rainfall
+   DD[so4]= 138.2/365.25; mg/m2-day, dry deposition of so4
+
+   WetDep[tp]= 0.01; mg/L or g/m3
+   DD[tp]= 10/365.25; mg/m2-day
+
+;SULFATE REACTION CONSTANTS
+   khalfSO4 = 1; g/m3 half saturation constant 
+   MaxSO4Removal = 14.4/365.25; g/m2-d maximum sulfate removal
+
+;TOTAL PHOSPHORUS CONSTANTS
+   benthic = 0 {7.36/1000}; g/m2-day internal loading rate for the canal 
+
+;_____Dynamic Model for Stormwater Treatment Areas (DMSTA) developed by Walker and Kadlec
+
+;DMSTA VALUES
+;values for these sets can be found online http://www.wwwalker.net/dmsta/ 
+
+  ;Maximum uptake rate
+    K1[emerg] = (0.1064/365.25)*1000 ;m3/g/day
+    K1[pew] = (0.2210/365.25)*1000 ;m3/g/day
+    
+  ;Recycle rate
+    K2[emerg] = (0.0020/365.25)*1000 ;m2/g/day
+    K2[pew] = (0.0042/365.25)*1000 ;m2/g/day
+    
+  ;Burial rate
+    K3[emerg]= 0.3192/365.25 ;per day
+    K3[pew]= 0.6631/365.25 ;per day
+    
+  ;Depth scaling factor
+    Zx= 0.6 ;meter
+
+  ;Depth Function (unitless)
+    Fz[1..nm]= GRAPH(depth[i]) (0,0) (0.4,1) (1,1) (2,0.2);IF Zx<=0 THEN 1 ELSE MIN(1, depth[i]/Zx)
+
+  ;Concentration Multiplier (unitless)
+    Fc[tp, 1..nm,emerg..pew]= 0.3/(conc[i, j,k]+0.3)
+
+  ;Uptake - Uptake of Phosphorus 
+    Uptake[tp, 1..nm, emerg..pew]= Fc[i, j,k]*Fz[j]*K1[k]*dmsta_store[i, j,k]*conc[i, j,k]*area[j] ; g/day
+
+  ;Release - Release of Phosphorus
+    Release[tp, 1..nm, emerg..pew]= K2[k]*(dmsta_store[i, j,k]^2)*area[j] ; g/day                
+
+  ;Burial - Burial of Phosphorus into the sediment
+    Burial[tp, 1..nm, emerg..pew]= K3[k]*dmsta_store[i, j,k]*area[j] ; g/day
+
+  ;UptakePrM2 - Uptake of Phosphorus per sq.meter
+    UpPrM2[tp, 1..nm, emerg..pew]= Uptake[i, j,k]/area[j] ; g/m2/day
+
+  ;ReleasePrM3 - Release of Phosphorus per cubic meter
+    RelPrM3[tp, 1..nm, emerg..pew]= Release[i, j,k]/volume[j] ; g/m3/day
+
+;DMSTA STATE VARIABLES
+  
+  ;Biomass Storage differential equation
+  d/dt(dmsta_store[tp, 1..nm, emerg..pew])= upPrM2[i, j,k] - ((Release[i, j,k] + Burial[i, j,k])/area[j]);g/m2/day
+
+;______INITIAL VALUES
+
+;BIOMASS STORAGE (DMSTA)
+   INIT dmsta_store[tp, 1..nm, emerg..pew]= init_storage[i,j,k]; g/m2
+
+   init_storage[tp,1,emerg..pew] = 0.5; g/m2
+   init_storage[tp,2,emerg..pew] = 0.1; g/m2
+   init_storage[tp,3,emerg..pew] = 0.1; g/m2
+
+;VOLUME
+INIT vol[1..nm] = (Eminit - Eo) * area[i]; Initial marsh compartment volume (m3)
+INIT vol[canal] = (Ecinit - Eoc) * area[canal]; Initial canal volume (m3)
+
+;DEPTH
+   D_C0= Ecinit - Eoc; m, Initial Depth in Canal
+   D_M0= Eminit - Eo; m, Initial Depth in Marsh
+
+;INITIAL CONCENTRATION SETS
+   
+   ;CHLORIDE
+   Conc_1995[cl,1,emerg..pew] = 71.5
+   Conc_1995[cl,2,emerg..pew] = 30.0
+   Conc_1995[cl,3,emerg..pew] = 12.19
+   Conc_1995[cl,4,emerg..pew] = 89.55
+
+   Conc_2000[cl,1,emerg..pew] = 123.33333333
+   Conc_2000[cl,2,emerg..pew] = 77.46923077
+   Conc_2000[cl,3,emerg..pew] = 33.6
+   Conc_2000[cl,4,emerg..pew] = 99.79928571
+
+   Conc_2004[cl,1,emerg..pew] = 162.5
+   Conc_2004[cl,2,emerg..pew] = 69.81538462
+   Conc_2004[cl,3,emerg..pew] = 23.075
+   Conc_2004[cl,4,emerg..pew] = 147.88125
+
+   ;SULFATE
+   Conc_1995[so4,1,emerg..pew] = 19.55
+   Conc_1995[so4,2,emerg..pew] = 6.18
+   Conc_1995[so4,3,emerg..pew] = 1.21
+   Conc_1995[so4,4,emerg..pew] = 35.68
+
+   Conc_2000[so4,1,emerg..pew] = 19.55
+   Conc_2000[so4,2,emerg..pew] = 6.18
+   Conc_2000[so4,3,emerg..pew] = 1.21
+   Conc_2000[so4,4,emerg..pew] = 35.68
+
+   Conc_2004[so4,1,emerg..pew] = 19.55
+   Conc_2004[so4,2,emerg..pew] = 6.18
+   Conc_2004[so4,3,emerg..pew] = 1.21
+   Conc_2004[so4,4,emerg..pew] = 35.68
+
+   ;PHOSPHORUS
+   Conc_1995[tp,1,emerg..pew] = 0.0065
+   Conc_1995[tp,2,emerg..pew] = 0.014375
+   Conc_1995[tp,3,emerg..pew] = 0.013285714
+   Conc_1995[tp,4,emerg..pew] = 0.050
+
+   Conc_2000[tp,1,emerg..pew] = 0.0065
+   Conc_2000[tp,2,emerg..pew] = 0.014375
+   Conc_2000[tp,3,emerg..pew] = 0.013285714
+   Conc_2000[tp,4,emerg..pew] = 0.050
+
+   Conc_2004[tp,1,emerg..pew] = 0.0065
+   Conc_2004[tp,2,emerg..pew] = 0.014375
+   Conc_2004[tp,3,emerg..pew] = 0.013285714
+   Conc_2004[tp,4,emerg..pew] = 0.050
+
+;INITIAL MASS 
+;calculated from above concentration sets 
+    init mass[cl,1,emerg..pew]= D_M0*area[1]* INIT_Conc[i,j,k] ; cl mass (gm) in cells is initial depth * area * initial concentration (note concentration is mg/L = g/m3)
+    init mass[cl,2,emerg..pew]= D_M0*area[2]* INIT_Conc[i,j,k]
+    init mass[cl,3,emerg..pew]= D_M0*area[3]* INIT_Conc[i,j,k]
+    init mass[cl,canal,emerg..pew]= D_C0*area[canal]* INIT_Conc[i,j,k]
+
+    init mass[so4,1,emerg..pew]= D_M0*area[1]* INIT_Conc[i,j,k]; so4 mass (gm) in cells is initial depth * area * initial concentration
+    init mass[so4,2,emerg..pew]= D_M0*area[2]* INIT_Conc[i,j,k]
+    init mass[so4,3,emerg..pew]= D_M0*area[3]* INIT_Conc[i,j,k]
+    init mass[so4,canal,emerg..pew]= D_C0*area[canal]* INIT_Conc[i,j,k]
+
+    init mass[tp,1,emerg..pew]= D_M0*area[1]* INIT_Conc[i,j,k]; tp mass (gm) in cells is initial depth * area * initial concentration
+    init mass[tp,2,emerg..pew]= D_M0*area[2]* INIT_Conc[i,j,k]
+    init mass[tp,3,emerg..pew]= D_M0*area[3]* INIT_Conc[i,j,k]
+    init mass[tp,canal,emerg..pew]= D_C0*area[canal]* INIT_Conc[i,j,k]
+
+;_____WATER BUDGET CALCULATIONS
+
+;EXCHANGE FLOW PARAMETER
+;Flow reduction factors (marsh only)
+qmcfactor[1..nm] = area[i]/area_marsh
+
+;DEPTH (m)
+mindepth = 0.05;  minimum depth (m), avoids division by zero
+depth[1..ncell] = max(volume[i]/area[i], mindepth); depth is used in reaction calculations and dispersion
+
+;_____COMPARTMENT LINKS
+;Define flow connections, (+ve) flow from up to down
+  nlinks= 3; nlinks is number of flow connections
+  up[1]= 4; canal-cell 1
+  dn[1]= 1
+  up[2]= 1; cell 1-cell 2
+  dn[2]= 2
+  up[3]= 2; cell 2-cell 3
+  dn[3]= 3
+  q[1]= Exchange_Flow; set up flow array for the nlinks flows
+  q[2]= Exchange_Flow*(area[2]+area[3])/area_marsh
+  q[3]= Exchange_Flow*area[3]/area_marsh
+
+;_____PARAMETERS
+
+;COMPARTMENT EXCHANGE
+;calculate advective loads for each flow connection, + load is with positive flow
+  
+  qload[1..nconstit, 1..nlinks,emerg..pew] = (max(q[ j], 0)*conc[i,up[ j],k]) - (max(-q[ j], 0)*conc[i,dn[ j],k])
+
+;AERIAL DEPOSITION
+  
+  aload[1..nconstit, 1..ncell]= area[j]*((DD[i]/1000) + (WetDep[i]*P));
+
+;GROUNDWATER SEEPAGE + EVAPOTRANSPIRATION
+  
+  gload[1..tp, 1..nm,emerg..pew]= conc[i, j,k]*(Gm+(transp*ET))*area[j]; marsh seepage + transp load
+  gload[1..tp, canal,emerg..pew]=  conc[i, canal,k]*Gc*area[canal]; canal seepage load, no transpiration in canal
+
+;STRUCTURE FLOW
+  
+  ;Outflow load 
+  CLLOAD_OUT[cl, canal,emerg..pew] = Qout*conc[i,j,k]
+  SO4LOAD_OUT[so4, canal,emerg..pew] = Qout*conc[i,j,k]
+  TPLOAD_OUT[tp, canal,emerg..pew] = Qout*conc[i,j,k]
+
+  ;Net canal structure inflow - outflow loads
+  sload[cl,canal,emerg..pew]= ClLOAD - CLLOAD_OUT[i,j,k]
+  sload[so4,canal,emerg..pew]= SO4LOAD - SO4LOAD_OUT[i,j,k]
+  sload[tp,canal,emerg..pew]= TPLOAD - TPLOAD_OUT[i,j,k]
+
+;REACTIVE LOADS (LOSS)
+  
+  ;Chloride
+  rload[cl, 1..ncell,emerg..pew]= 0; conservative
+  
+  ;Sulfate
+  rload[so4, 1..nm,emerg..pew]= -(MaxSO4Removal*area[j]) * conc[i, j,k]/(khalfSO4+conc[i, j,k]);  
+  rload[so4, canal,emerg..pew]= 0
+  
+  ;Total Phosphorus
+  rload[tp, 1..nm,emerg..pew]= Release[i, j,k] - Uptake[i, j,k]
+  rload[tp, canal,emerg..pew]=  benthic*area[canal]
+
+;_____SRSM CONSTITUENT MODEL DIFFERENTIAL EQUATIONS
+
+;VOLUME
+d/dt(vol[canal])= Qin - Qout - Exchange_Flow + ((P-ETc-Gc)*area[canal])
+d/dt(vol[1..nm])= ((P-ETm-Gm)*area[i]) + (Exchange_Flow*qmcfactor[i])
+
+;MASS
+
+;Marsh (flow load + dispersive load + aerial load - groundwater load for each constituent)
+{COMPARTMENT 1}  d/dt(mass[1..nconstit, 1,emerg..pew]) =  qload[i, 1,k] - qload[i, 2,k]  + aload[i, 1] - gload[i, 1,k] + rload[i, 1,k]
+{COMPARTMENT 2}  d/dt(mass[1..nconstit, 2,emerg..pew]) =  qload[i, 2,k] - qload[i, 3,k] + aload[i, 2] - gload[i, 2,k] + rload[i, 2,k]
+{COMPARTMENT 3}  d/dt(mass[1..nconstit, 3,emerg..pew]) =  qload[i, 3,k] + aload[i, 3] - gload[i, 3,k] + rload[i, 3,k]
+
+;Canal (structure load + flow load + dispersive load + aerial load - groundwater load)
+{COMPARTMENT 4}  d/dt(mass[1..nconstit, canal,emerg..pew]) = sload[i,j,k] - qload[i, 1,k] + aload[i, canal] - gload[i, canal,k] + rload[i, canal,k]
+
+;_____VOLUME & CONCENTRATION CALCULATIONS
+
+;VOLUME (m3)
+volume[canal] = MAX(vol[canal], mincanal_vol)
+volume[1..nm] = MAX(vol[i], mincell_vol[i])
+
+;CONCENTRATION (mg/L = g/m3) is calculated from mass (g) and volume (m3)
+conc[cl..tp, 1..ncell,emerg..pew]= max(mass[i, j,k],0)/max(volume[j],1); use max function to prevent negative c & division by zero or negative volume
+
+;=======================================================================================================
+;============================================  END SRSM CODE  ===========================================
+;=======================================================================================================
+
+;_____VOLUME CHECK
+;check for consistency between model calculations
+
+Vtotal_WQ = arraysum(volume[*])
+Vtotal_HD = Vc + Vm
+
+VolC_diff = Vc - volume[canal]
+VolM_diff = Vm - (volume[1] + volume[2] + volume[3]) 
+
+;==============================================================================================
+
+;_____FLOW ANALYSIS (for calibration only)
+
+;Historic S10 outflow, compare with QoutCalcS1039
+QoutS1039historic = S10E_out + S10D_out + S10C_out + S10A_out + S39_out
+QoutS10historic = S10E_out + S10D_out + S10C_out + S10A_out
+
+;Calculated outflow and additional input 
+QoutCalcS1039 = QoutCalc + Qout_hurricane + QWaterSupply
+
+;Average daily outflow
+Daily_QoutS1039historic = CONVEYOR(QoutS1039historic,1); All historic outflow for S10ACDE & S39 (from DBHYDRO)
+Daily_QoutS10historic = CONVEYOR(QoutS10historic,1); All historic outflow for S10ACDE (from DBHYDRO)
+Daily_QoutCalcS1039 = CONVEYOR(QoutCalcS1039,1); Calculated S10 and S39 regulatory release with observed water supply (S39) and hurricane releases (S10ACD)
+Daily_Qouthistoric = CONVEYOR(Qouthistoric,1); All historic outflow for Refuge structures (from DBHYDRO)
+
+;Cumulative
+CUMU_QoutS1039historic = CONVEYOR(QoutS1039historic,STOPTIME); All historic outflow for S10ACDE & S39 (from DBHYDRO)
+CUMU_QoutS10historic = CONVEYOR(QoutS10historic, STOPTIME); All historic outflow for S10ACDE (from DBHYDRO)
+CUMU_QoutCalcS1039 = CONVEYOR(QoutCalcS1039, STOPTIME); Calculated S10 and S39 regulatory release with observed water supply (S39) and hurricane releases (S10ACD)
+CUMU_Qouthistoric = CONVEYOR(Qouthistoric,STOPTIME); All historic outflow for Refuge structures (from DBHYDRO)
+
+;Qout Difference
+Qout_Diff = Qout - QoutHistoric; test both cases with CalcQRo = 1 & 0
+
+;==============================================================================================
+
+;_____DAILY AVERAGE STAGE
+;Calculate daily average stage in the canal and marsh cells
+
+INIT EcTotal = 0 
+INIT EmTotal = 0
+
+d/dt(EcTotal) = Ec
+d/dt(EmTotal) = Em
+
+Ec_delay = DELAY(EcTotal,1)
+Em_delay = DELAY(EmTotal,1)
+
+Ec_avg = EcTotal - Ec_delay
+Em_avg = EmTotal - Em_delay
+
+;==============================================================================================
+
+;_____DMSTA DEPTH MULTIPLIER
+
+depthsum = CONVEYOR(depth_1, STOPTIME)
+
+AvgDepth = depthsum/STOPTIME
+
+Fz_1sum = CONVEYOR(Fz_1, STOPTIME)
+
+AvgFz = Fz_1sum/STOPTIME
+
+depth_1 = depth[1]
+depth_2 = depth[2]
+depth_3 = depth[3]
+
+Fz_1 = Fz[1]
+Fz_2 = Fz[2]
+Fz_3 = Fz[3]
+
+;==============================================================================================
+
+;_____STORAGE TIMESERIES
+
+em_store1 = dmsta_store[tp, 1,emerg]
+em_store2 = dmsta_store[tp, 2,emerg]
+em_store3 = dmsta_store[tp, 3,emerg]
+
+pew_store1 = dmsta_store[tp, 1, pew]
+pew_store2 = dmsta_store[tp, 2, pew]
+pew_store3 = dmsta_store[tp, 3, pew]
+
+;==============================================================================================
+
+;_____TP TIMESERIES (MASS)
+
+TP1MASS_em = mass[tp,1,emerg]
+TP1MASS_pew = mass[tp,1,pew]
+
+init TP1MASSem_total = 0
+d/dt(TP1MASSem_total) = TP1MASS_em
+TP1MASSem_daily = TP1MASSem_total - DELAY(TP1MASSem_total, 1); daily average TP mass:cell 1 (m3/d)
+
+init TP1MASSpew_total = 0
+d/dt(TP1MASSpew_total) = TP1MASS_pew
+TP1MASSpew_daily = TP1MASSpew_total - DELAY(TP1MASSpew_total, 1); daily average TP mass:cell 1 (m3/d)
+
+TP2MASS_em = mass[tp,2,emerg]
+TP2MASS_pew = mass[tp,2,pew]
+
+init TP2MASSem_total = 0
+d/dt(TP2MASSem_total) = TP2MASS_em
+TP2MASSem_daily = TP2MASSem_total - DELAY(TP2MASSem_total, 1); daily average TP mass:cell 2 (m3/d)
+
+init TP2MASSpew_total = 0
+d/dt(TP2MASSpew_total) = TP2MASS_pew
+TP2MASSpew_daily = TP2MASSpew_total - DELAY(TP2MASSpew_total, 1); daily average TP mass:cell 2 (m3/d)
+
+TP3MASS_em = mass[tp,3,emerg]
+TP3MASS_pew = mass[tp,3,pew]
+
+init TP3MASSem_total = 0
+d/dt(TP3MASSem_total) = TP3MASS_em
+TP3MASSem_daily = TP3MASSem_total - DELAY(TP3MASSem_total, 1); daily average TP mass:cell 3 (m3/d)
+
+init TP3MASSpew_total = 0
+d/dt(TP3MASSpew_total) = TP3MASS_pew
+TP3MASSpew_daily = TP3MASSpew_total - DELAY(TP3MASSpew_total, 1); daily average TP mass:cell 3 (m3/d)
+
+TP4MASS_em = mass[tp,4,emerg]
+TP4MASS_pew = mass[tp,4,pew]
+
+init TP4MASSem_total = 0
+d/dt(TP4MASSem_total) = TP4MASS_em
+TP4MASSem_daily = TP4MASSem_total - DELAY(TP4MASSem_total, 1); daily average TP mass:cell 4 (m3/d)
+
+init TP4MASSpew_total = 0
+d/dt(TP4MASSpew_total) = TP4MASS_pew
+TP4MASSpew_daily = TP4MASSpew_total - DELAY(TP4MASSpew_total, 1); daily average TP mass:cell 4 (m3/d)
+
+;==============================================================================================
+
+;_____TP TIMESERIES (CONCENTRATION)
+
+TPDMSTA1_em = conc[tp,1,emerg]
+TPDMSTA1_pew = conc[tp,1,pew]
+
+init TP1em_total = 0
+d/dt(TP1em_total) = TPDMSTA1_em
+TP1em_daily = TP1em_total - DELAY(TP1em_total, 1); daily average TP concentration:cell 1 (m3/d)
+
+init TP1pew_total = 0
+d/dt(TP1pew_total) = TPDMSTA1_pew
+TP1pew_daily = TP1pew_total - DELAY(TP1pew_total, 1); daily average TP concentration:cell 1 (m3/d)
+
+TPDMSTA2_em = conc[tp,2,emerg]
+TPDMSTA2_pew = conc[tp,2,pew]
+
+init TP2em_total = 0
+d/dt(TP2em_total) = TPDMSTA2_em
+TP2em_daily = TP2em_total - DELAY(TP2em_total, 1); daily average TP concentration:cell 2 (m3/d)
+
+init TP2pew_total = 0
+d/dt(TP2pew_total) = TPDMSTA2_pew
+TP2pew_daily = TP2pew_total - DELAY(TP2pew_total, 1); daily average TP concentration:cell 2 (m3/d)
+
+TPDMSTA3_em = conc[tp,3,emerg]
+TPDMSTA3_pew = conc[tp,3,pew]
+
+init TP3em_total = 0
+d/dt(TP3em_total) = TPDMSTA3_em
+TP3em_daily = TP3em_total - DELAY(TP3em_total, 1); daily average TP concentration:cell 3 (m3/d)
+
+init TP3pew_total = 0
+d/dt(TP3pew_total) = TPDMSTA3_pew
+TP3pew_daily = TP3pew_total - DELAY(TP3pew_total, 1); daily average TP concentration:cell 3 (m3/d)
+
+TPDMSTA4_em = conc[tp,4,emerg]
+TPDMSTA4_pew = conc[tp,4,pew]
+
+init TP4em_total = 0
+d/dt(TP4em_total) = TPDMSTA4_em
+TP4em_daily = TP4em_total - DELAY(TP4em_total, 1); daily average TP concentration:cell 4 (m3/d)
+
+init TP4pew_total = 0
+d/dt(TP4pew_total) = TPDMSTA4_pew
+TP4pew_daily = TP4pew_total - DELAY(TP4pew_total, 1); daily average TP concentration:cell 4 (m3/d)
+
+;==============================================================================================
+
+;_____SULFATE TIMESERIES (CONCENTRATION)
+
+S1 = conc[so4, 1,emerg]
+S2 = conc[so4, 2,emerg]
+S3 = conc[so4, 3,emerg]
+S4 = conc[so4, 4,emerg]
+
+init S1_total = 0
+d/dt(S1_total) = S1
+S_1daily = S1_total - DELAY(S1_total, 1); daily average sulfate concentration:cell 1 (m3/d)
+
+init S2_total = 0
+d/dt(S2_total) = S2
+S_2daily = S2_total - DELAY(S2_total, 1); daily average sulfate concentration:cell 2 (m3/d)
+
+init S3_total = 0
+d/dt(S3_total) = S3
+S_3daily = S3_total - DELAY(S3_total, 1); daily average sulfate concentration:cell 3 (m3/d)
+
+init S4_total = 0
+d/dt(S4_total) = S4
+S_4daily = S4_total - DELAY(S4_total, 1); daily average sulfate concentration:cell 4 (m3/d)
+
+{S1obs = #SULFATE_OBSERVED(day,1)
+S2obs = #SULFATE_OBSERVED(day,2)
+S3obs = #SULFATE_OBSERVED(day,3)
+S4obs = #SULFATE_OBSERVED(day,4)}
+
+
+;==============================================================================================
+
+;_____CHLORIDE TIMESERIES (CONCENTRATION)
+
+CL_1 = conc[cl,1,pew]
+CL_2 = conc[cl,2,pew]
+CL_3 = conc[cl,3,pew]
+CL_4 = conc[cl,4,pew]
+
+init cl1_total = 0
+d/dt(cl1_total) = CL_1
+CL_1daily = cl1_total - DELAY(cl1_total, 1); daily average chloride concentration:cell 1 (m3/d)
+
+init cl2_total = 0
+d/dt(cl2_total) = CL_2
+CL_2daily = cl2_total - DELAY(cl2_total, 1); daily average chloride concentration:cell 2 (m3/d)
+
+init cl3_total = 0
+d/dt(cl3_total) = CL_3
+CL_3daily = cl3_total - DELAY(cl3_total, 1); daily average chloride concentration:cell 3 (m3/d)
+
+init cl4_total = 0
+d/dt(cl4_total) = CL_4
+CL_4daily = cl4_total - DELAY(cl4_total, 1); daily average chloride concentration:cell 4 (m3/d)
+
+;==============================================================================================
+
+;_____SEEPAGE ANALYSIS
+
+init seepmtot = 0
+d/dt(seepmtot) = Gm
+seepm_daily = seepmtot - DELAY(seepmtot,1); daily average seepage rate for the marsh (m/d)
+seepm_monthly = seepmtot - DELAY(seepmtot, 30.3)
+seepm_flow = seepm_daily*Marsh_Area
+
+init seepctot = 0
+d/dt(seepctot) = Gc
+seepc_daily = seepctot - DELAY(seepctot,1); daily average seepage rate for the canal (m/d)
+seepc_monthly = seepctot - DELAY(seepctot, 30.3)
+seepc_flow = seepc_daily*Canal_Area
+
+Gcsum = CONVEYOR(Gc, STOPTIME)
+Gcsum_int = seepctot
+
+;==============================================================================================
+
+;_____REGULATION FLOW ANALYSIS (only for CalcQro = 1)
+
+init Qout_tot = 0
+d/dt(Qout_tot) = Qout
+Qout_daily = Qout_tot - DELAY(Qout_tot,1); daily average outflow (m3/d)
+Qout_monthly = Qout_tot - DELAY(Qout_tot, 30.3)
+
+init Qin_tot = 0
+d/dt(Qin_tot) = Qin
+Qin_daily = Qin_tot - DELAY(Qin_tot,1); daily average inflow (m3/d)
+Qin_monthly = Qin_tot - DELAY(Qin_tot, 30.3)
+
+; S-10 Regulatory Release Outflow Volume 
+INIT QoutCalcS10V = 0
+d/dt(QoutCalcS10V) = 1000*QoutCalcS10
+QoutCalcS10Daily = QoutCalcS10V - DELAY(QoutCalcS10V, 1); daily average S-10 outflow (m3/d)
+
+{; Total days above 17 feet (5.1816 m) in marsh 
+INIT d17 = 0
+d/dt(d17) = IF (Emft>17) THEN 1 ELSE 0
+d17Daily = d17 - DELAY(d17, 1); fraction of a day marsh is above 17 ft in past day}
+
+;==============================================================================================
+
+;______CHLORIDE REFUGE MASS BALANCE
+
+aloadCL_1_in = aload[cl,1] * gm_tonne
+aloadCL_2_in = aload[cl,2] * gm_tonne
+aloadCL_3_in = aload[cl,3] * gm_tonne
+aloadCL_4_in = aload[cl,4] * gm_tonne
+
+sloadCL_in = ClLOAD * gm_tonne
+sloadCL_out = CLLOAD_OUT[cl,canal,emerg] * gm_tonne
+
+NETStructLoad_CL = sload[cl,canal,emerg] * gm_tonne
+
+gloadCL_1_out = gload[cl,1,emerg] * gm_tonne
+gloadCL_2_out = gload[cl,2,emerg] * gm_tonne
+gloadCL_3_out = gload[cl,3,emerg] * gm_tonne
+gloadCL_4_out = gload[cl,canal,emerg] * gm_tonne
+
+rloadCL_1_out = rload[cl,1,emerg] * gm_tonne
+rloadCL_2_out = rload[cl,2,emerg] * gm_tonne
+rloadCL_3_out = rload[cl,3,emerg] * gm_tonne
+rloadCL_4_out = rload[cl,canal,emerg] * gm_tonne
+
+REFUGECL_OUT = (sloadCL_out + gloadCL_1_out + gloadCL_2_out + gloadCL_3_out + gloadCL_4_out + rloadCL_1_out + rloadCL_2_out + rloadCL_3_out + rloadCL_4_out)
+REFUGECL_IN = (sloadCL_in + aloadCL_1_in + aloadCL_2_in + aloadCL_3_in + aloadCL_4_in)
+REFUGEDIFF_CL = (REFUGECL_IN - REFUGECL_OUT)
+
+SEEPCL_1 = conc[cl,1,emerg]*Gm*area[1] * gm_tonne; mass lost to seepage in cell 1
+SEEPCL_2 = conc[cl,2,emerg]*Gm*area[2] * gm_tonne; mass lost to seepage in cell 2
+SEEPCL_3 = conc[cl,3,emerg]*Gm*area[3] * gm_tonne; mass lost to seepage in cell 3
+SEEPCL_4 = conc[cl,4,emerg]*Gc*area[4] * gm_tonne; mass lost to seepage in cell 4
+
+TRANSCL_1 = conc[cl,1,emerg]*(transp*ET)*area[1] * gm_tonne; mass lost to transpiration in cell 1
+TRANSCL_2 = conc[cl,2,emerg]*(transp*ET)*area[2] * gm_tonne; mass lost to transpiration in cell 2
+TRANSCL_3 = conc[cl,3,emerg]*(transp*ET)*area[3] * gm_tonne; mass lost to transpiration in cell 3
+TRANSCL_4 = 0; no mass lost to transpiration in cell 4
+
+PRECIPCL_1 = area[1] * WetDep[cl] * P * gm_tonne
+PRECIPCL_2 = area[2] * WetDep[cl] * P * gm_tonne
+PRECIPCL_3 = area[3] * WetDep[cl] * P * gm_tonne
+PRECIPCL_4 = area[4] * WetDep[cl] * P * gm_tonne
+
+MASSSEEPCL = (SEEPCL_1+SEEPCL_2+SEEPCL_3+SEEPCL_4); units >> metric tons
+MASSTRANSCL = (TRANSCL_1+TRANSCL_2+TRANSCL_3); units >> metric tons
+MASSALOADCL = (aloadCL_1_in+aloadCL_2_in+aloadCL_3_in+aloadCL_4_in); units >> metric tons
+MASSPRECIPCL = (PRECIPCL_1 + PRECIPCL_2 + PRECIPCL_3 + PRECIPCL_4); units >> metric tons
+
+PERCENTSEEP_CL = (MASSSEEPCL)/REFUGECL_OUT*100
+PERCENTTRANS_CL = (MASSTRANSCL)/REFUGECL_OUT*100
+PERCENTALOAD_CL = (MASSALOADCL)/REFUGECL_IN*100
+
+;_____CUMULATIVE CALCULATIONS (metric tons)
+CUMUCL_IN = CONVEYOR(REFUGECL_IN,STOPTIME)
+CUMUCL_OUT = CONVEYOR(REFUGECL_OUT,STOPTIME)
+CUMU_REFCLDIFF = CONVEYOR(REFUGEDIFF_CL,STOPTIME)
+CUMU_SEEPCL = CONVEYOR(MASSSEEPCL, STOPTIME)
+CUMU_TRANSCL = CONVEYOR(MASSTRANSCL,STOPTIME)
+CUMU_ALOADCL = CONVEYOR(MASSALOADCL, STOPTIME)
+CUMU_PRECIPCL = CONVEYOR(MASSPRECIPCL, STOPTIME)
+CUMU_SLOADINCL = CONVEYOR(sloadCL_in, STOPTIME)
+CUMU_SLOADOUTCL = CONVEYOR(sloadCL_out, STOPTIME)
+
+;MODEL BUDGET (metric tons)
+;cl mass
+MASS_CL1 = D_M0*area[1]* INIT_Conc[cl,1,emerg] * gm_tonne
+MASS_CL2 = D_M0*area[2]* INIT_Conc[cl,2,emerg] * gm_tonne
+MASS_CL3 = D_M0*area[3]* INIT_Conc[cl,3,emerg] * gm_tonne
+MASS_CL4 = D_C0*area[canal]* INIT_Conc[cl,4,emerg] * gm_tonne
+
+TOT_INITCLm = MASS_CL1 + MASS_CL2 + MASS_CL3
+TOT_INITCLc = MASS_CL4
+TOT_INITCL = (MASS_CL1 + MASS_CL2 + MASS_CL3 +MASS_CL4); units >> metric tons
+
+;FINAL CHLORIDE MASS (metric tons)
+ENDCL_1 = mass[cl,1,pew] * gm_tonne
+ENDCL_2 = mass[cl,2,pew] * gm_tonne
+ENDCL_3 = mass[cl,3,pew] * gm_tonne
+ENDCL_4 = mass[cl,4,pew] * gm_tonne
+
+TOT_ENDmCL = ENDCL_1 + ENDCL_2 + ENDCL_3
+TOT_ENDcCL = ENDCL_4
+TOT_ENDCL = (ENDCL_1 + ENDCL_2 + ENDCL_3 + ENDCL_4); units >> metric tons
+
+CL_BUD = ((TOT_INITCL + CUMUCL_IN) - (TOT_ENDCL+CUMUCL_OUT))
+
+;_____DAILY ACCUMULATION (metric tons)
+Daily_CL_IN = CONVEYOR(REFUGECL_IN,1)
+Daily_CL_OUT = CONVEYOR(REFUGECL_OUT,1)
+Daily_REFCLDIFF = CONVEYOR(REFUGEDIFF_CL,1)
+Daily_SEEPCL = CONVEYOR(MASSSEEPCL, 1)
+Daily_TRANSCL = CONVEYOR(MASSTRANSCL,1)
+Daily_ALOADCL = CONVEYOR(MASSALOADCL, 1)
+Daily_PRECIPCL = CONVEYOR(MASSPRECIPCL, 1)
+Daily_SLOADINCL = CONVEYOR(sloadCL_in, 1)
+Daily_SLOADOUTCL = CONVEYOR(sloadCL_out, 1)
+
+;==============================================================================================
+
+;______TP(EMERG) REFUGE MASS BALANCE
+
+aloadTPem_1_in = aload[tp,1] * gm_tonne
+aloadTPem_2_in = aload[tp,2] * gm_tonne
+aloadTPem_3_in = aload[tp,3] * gm_tonne
+aloadTPem_4_in = aload[tp,4] * gm_tonne
+
+sloadTPem_in = TPLOAD * gm_tonne
+sloadTPem_out = TPLOAD_OUT[tp,canal,emerg] * gm_tonne
+
+NETStructLoad_TPem = sload[tp,canal,emerg] * gm_tonne
+
+rloadTPem_4_in = rload[tp,canal,emerg] * gm_tonne; P-loading in the canal through BENTHIC load value
+
+gloadTPem_1_out = gload[tp,1,emerg] * gm_tonne
+gloadTPem_2_out = gload[tp,2,emerg] * gm_tonne
+gloadTPem_3_out = gload[tp,3,emerg] * gm_tonne
+gloadTPem_4_out = gload[tp,canal,emerg] * gm_tonne
+
+upTPemerg_1 = Uptake[tp,1,emerg]; temporary loss to biomass (out)
+upTPemerg_2 = Uptake[tp,2,emerg]; temporary loss to biomass (out)
+upTPemerg_3 = Uptake[tp,3,emerg]; temporary loss to biomass (out)
+upTPemerg_4 = 0; no uptake in canal 
+
+relTPemerg_1 = Release[tp,1,emerg]; release to water column (in)
+relTPemerg_2 = Release[tp,2,emerg]; release to water column (in)
+relTPemerg_3 = Release[tp,3,emerg]; release to water column (in)
+relTPemerg_4 = 0; no release in canal
+
+burTPem_1 = Burial[tp,1,emerg] * gm_tonne; permanent loss to biomass (out)
+burTPem_2 = Burial[tp,2,emerg] * gm_tonne; permanent loss to biomass (out)
+burTPem_3 = Burial[tp,3,emerg] * gm_tonne; permanent loss to biomass (out)
+burTPem_4 = 0; no burial in canal 
+
+REFUGETPem_OUT = sloadTPem_out + gloadTPem_1_out + gloadTPem_2_out + gloadTPem_3_out + gloadTPem_4_out +burTPem_1 + burTPem_2 + burTPem_3 + burTPem_4;
+REFUGETPem_IN = aloadTPem_1_in + aloadTPem_2_in + aloadTPem_3_in + aloadTPem_4_in + sloadTPem_in + rloadTPem_4_in;
+REFUGEDIFF_TPem = REFUGETPem_IN - REFUGETPem_OUT
+
+SEEPTPem_1 = conc[tp,1,emerg]*Gm*area[1] * gm_tonne; mass lost to seepage in cell 1
+SEEPTPem_2 = conc[tp,2,emerg]*Gm*area[2] * gm_tonne; mass lost to seepage in cell 2
+SEEPTPem_3 = conc[tp,3,emerg]*Gm*area[3] * gm_tonne; mass lost to seepage in cell 3
+SEEPTPem_4 = conc[tp,4,emerg]*Gc*area[4] * gm_tonne; mass lost to seepage in cell 4
+
+TRANSTPem_1 = conc[tp,1,emerg]*(transp*ET)*area[1] * gm_tonne; mass lost to transpiration in cell 1
+TRANSTPem_2 = conc[tp,2,emerg]*(transp*ET)*area[2] * gm_tonne; mass lost to transpiration in cell 2
+TRANSTPem_3 = conc[tp,3,emerg]*(transp*ET)*area[3] * gm_tonne; mass lost to transpiration in cell 3
+TRANSTPem_4 = 0 * gm_tonne; no mass lost to transpiration in cell 4
+
+PRECIPTPem_1 = area[1] * WetDep[tp] * P * gm_tonne
+PRECIPTPem_2 = area[2] * WetDep[tp] * P * gm_tonne
+PRECIPTPem_3 = area[3] * WetDep[tp] * P * gm_tonne
+PRECIPTPem_4 = area[4] * WetDep[tp] * P * gm_tonne
+
+MASSBURTPem = burTPem_1 + burTPem_2 + burTPem_3 + burTPem_4
+MASSSEEPTPem = SEEPTPem_1+SEEPTPem_2+SEEPTPem_3+SEEPTPem_4
+MASSTRANSTPem= TRANSTPem_1+TRANSTPem_2+TRANSTPem_3
+MASSALOADTPem = (aloadTPem_1_in+aloadTPem_2_in+aloadTPem_3_in+aloadTPem_4_in); units >> metric tons
+MASSPRECIPTPem = (PRECIPTPem_1 + PRECIPTPem_2 + PRECIPTPem_3 + PRECIPTPem_4); units >> metric tons
+
+PERCENTbur_TPem = (burTPem_1 + burTPem_2 + burTPem_3 + burTPem_4)/REFUGETPem_OUT*100
+PERCENTSEEP_TPem = (SEEPTPem_1+SEEPTPem_2+SEEPTPem_3+SEEPTPem_4)/REFUGETPem_OUT*100
+PERCENTTRANS_TPem = (TRANSTPem_1+TRANSTPem_2+TRANSTPem_3)/REFUGETPem_OUT*100
+
+;_____CUMULATIVE CALCULATIONS (metric tons)
+CUMUTPem_IN = CONVEYOR(REFUGETPem_IN,STOPTIME)
+CUMUTPem_OUT = CONVEYOR(REFUGETPem_OUT,STOPTIME)
+CUMU_REFTPemDIFF = CONVEYOR(REFUGEDIFF_TPem,STOPTIME)
+CUMU_SEEPTPem = CONVEYOR(MASSSEEPTPem, STOPTIME)
+CUMU_BURTPem = CONVEYOR(MASSBURTPem,STOPTIME)
+CUMU_TRANSTPem = CONVEYOR(MASSTRANSTPem,STOPTIME)
+CUMU_ALOADTPem = CONVEYOR(MASSALOADTPem, STOPTIME)
+CUMU_PRECIPTPem = CONVEYOR(MASSPRECIPTPem, STOPTIME)
+CUMU_SLOADINTPem = CONVEYOR(sloadTPem_in, STOPTIME)
+CUMU_SLOADOUTTPem = CONVEYOR(sloadTPem_out, STOPTIME)
+
+;_____MODEL BUDGET (metric tons)
+;TPem mass
+MASS_TPem1 = ((D_M0* INIT_Conc[tp,1,emerg]) + (init_storage[tp,1,emerg])) * gm_tonne * area[1]
+MASS_TPem2 = ((D_M0* INIT_Conc[tp,2,emerg]) + (init_storage[tp,2,emerg])) * gm_tonne * area[2]
+MASS_TPem3 = ((D_M0* INIT_Conc[tp,3,emerg]) + (init_storage[tp,3,emerg])) * gm_tonne * area[3]
+MASS_TPem4 = (D_M0* INIT_Conc[tp,canal,emerg]) * gm_tonne * area[canal]
+
+TOT_INITTPem_m = MASS_TPem1 + MASS_TPem2 + MASS_TPem3
+TOT_INITTPem_c = MASS_TPem4
+TOT_INITTPem = (MASS_TPem1 + MASS_TPem2 + MASS_TPem3 +MASS_TPem4); units >> metric tons
+
+;FINAL TPem MASS (metric tons)
+ENDTPem_1 = (mass[tp,1,emerg] + (area[1] * dmsta_store[tp, 1, emerg])) * gm_tonne
+ENDTPem_2 = (mass[tp,2,emerg] + (area[2] * dmsta_store[tp, 2, emerg])) * gm_tonne
+ENDTPem_3 = (mass[tp,3,emerg] + (area[3] * dmsta_store[tp, 3, emerg])) * gm_tonne
+ENDTPem_4 = (mass[tp,canal,emerg]) * gm_tonne
+
+TOT_ENDTPem_m = ENDTPem_1 + ENDTPem_2 + ENDTPem_3
+TOT_ENDTPem_c = ENDTPem_4
+TOT_ENDTPem = (ENDTPem_1 + ENDTPem_2 + ENDTPem_3 + ENDTPem_4); units >> metric tons
+
+TPem_BUD = ((TOT_INITTPem + CUMUTPem_IN) - (TOT_ENDTPem+CUMUTPem_OUT))
+
+;_____DAILY ACCUMULATION (metric tons)
+Daily_TPem_IN = CONVEYOR(REFUGETPem_IN,1)
+Daily_TPem_OUT = CONVEYOR(REFUGETPem_OUT,1)
+Daily_REFDIFF_TPem = CONVEYOR(REFUGEDIFF_TPem,1)
+Daily_SEEPTPem = CONVEYOR(MASSSEEPTPem, 1)
+Daily_BURTPem = CONVEYOR(MASSBURTPem,1)
+Daily_TRANSTPem = CONVEYOR(MASSTRANSTPem,1)
+Daily_ALOADTPem = CONVEYOR(MASSALOADTPem, 1)
+Daily_PRECIPTPem = CONVEYOR(MASSPRECIPTPem, 1)
+Daily_SLOADINTPem = CONVEYOR(sloadTPem_in, 1)
+Daily_SLOADOUTTPem = CONVEYOR(sloadTPem_out, 1)
+
+;==============================================================================================
+
+;______TP(PEW) REFUGE MASS BALANCE
+
+aloadTPpew_1_in = aload[tp,1] * gm_tonne
+aloadTPpew_2_in = aload[tp,2] * gm_tonne
+aloadTPpew_3_in = aload[tp,3] * gm_tonne
+aloadTPpew_4_in = aload[tp,4] * gm_tonne
+
+sloadTPpew_in = TPLOAD * gm_tonne
+sloadTPpew_out = TPLOAD_OUT[tp,canal,pew] * gm_tonne
+
+NETStructLoad_TPpew = sload[tp,canal,pew] * gm_tonne
+
+rloadTPpew_4_in = rload[tp,canal,pew] * gm_tonne; P-loading in the canal through BENTHIC load value
+
+gloadTPpew_1_out = gload[tp,1,pew] * gm_tonne
+gloadTPpew_2_out = gload[tp,2,pew] * gm_tonne
+gloadTPpew_3_out = gload[tp,3,pew] * gm_tonne
+gloadTPpew_4_out = gload[tp,canal,pew] * gm_tonne
+
+upTPpew_1 = Uptake[tp,1,pew]; temporary loss to biomass (out)
+upTPpew_2 = Uptake[tp,2,pew]; temporary loss to biomass (out)
+upTPpew_3 = Uptake[tp,3,pew]; temporary loss to biomass (out)
+upTPpew_4 = 0; no uptake in canal 
+
+relTPpew_1 = Release[tp,1,pew]; release to water column (in)
+relTPpew_2 = Release[tp,2,pew]; release to water column (in)
+relTPpew_3 = Release[tp,3,pew]; release to water column (in)
+relTPpew_4 = 0; no release in canal
+
+burTPpew_1 = Burial[tp,1,pew] * gm_tonne; permanent loss to biomass (out)
+burTPpew_2 = Burial[tp,2,pew] * gm_tonne; permanent loss to biomass (out)
+burTPpew_3 = Burial[tp,3,pew] * gm_tonne; permanent loss to biomass (out)
+burTPpew_4 = 0; no burial in canal 
+
+REFUGETPpew_OUT = sloadTPpew_out + gloadTPpew_1_out + gloadTPpew_2_out + gloadTPpew_3_out + gloadTPpew_4_out +burTPpew_1 + burTPpew_2 + burTPpew_3 + burTPpew_4;
+REFUGETPpew_IN = aloadTPpew_1_in + aloadTPpew_2_in + aloadTPpew_3_in + aloadTPpew_4_in + sloadTPpew_in + rloadTPpew_4_in;
+REFUGEDIFF_TPpew = REFUGETPpew_IN - REFUGETPpew_OUT
+
+SEEPTPpew_1 = conc[tp,1,pew]*Gm*area[1] * gm_tonne; mass lost to seepage in cell 1
+SEEPTPpew_2 = conc[tp,2,pew]*Gm*area[2] * gm_tonne; mass lost to seepage in cell 2
+SEEPTPpew_3 = conc[tp,3,pew]*Gm*area[3] * gm_tonne; mass lost to seepage in cell 3
+SEEPTPpew_4 = conc[tp,4,pew]*Gc*area[4] * gm_tonne; mass lost to seepage in cell 4
+
+TRANSTPpew_1 = conc[tp,1,pew]*(transp*ET)*area[1] * gm_tonne; mass lost to transpiration in cell 1
+TRANSTPpew_2 = conc[tp,2,pew]*(transp*ET)*area[2] * gm_tonne; mass lost to transpiration in cell 2
+TRANSTPpew_3 = conc[tp,3,pew]*(transp*ET)*area[3] * gm_tonne; mass lost to transpiration in cell 3
+TRANSTPpew_4 = 0 * gm_tonne; no mass lost to transpiration in cell 4
+
+PRECIPTPpew_1 = area[1] * WetDep[tp] * P * gm_tonne
+PRECIPTPpew_2 = area[2] * WetDep[tp] * P * gm_tonne
+PRECIPTPpew_3 = area[3] * WetDep[tp] * P * gm_tonne
+PRECIPTPpew_4 = area[4] * WetDep[tp] * P * gm_tonne
+
+MASSBURTPpew = burTPpew_1 + burTPpew_2 + burTPpew_3 + burTPpew_4
+MASSSEEPTPpew = SEEPTPpew_1+SEEPTPpew_2+SEEPTPpew_3+SEEPTPpew_4
+MASSTRANSTPpew= TRANSTPpew_1+TRANSTPpew_2+TRANSTPpew_3
+MASSALOADTPpew = (aloadTPpew_1_in+aloadTPpew_2_in+aloadTPpew_3_in+aloadTPpew_4_in); units >> metric tons
+MASSPRECIPTPpew = (PRECIPTPpew_1 + PRECIPTPpew_2 + PRECIPTPpew_3 + PRECIPTPpew_4); units >> metric tons
+
+PERCENTbur_TPpew = (burTPpew_1 + burTPpew_2 + burTPpew_3 + burTPpew_4)/REFUGETPpew_OUT*100
+PERCENTSEEP_TPpew = (SEEPTPpew_1+SEEPTPpew_2+SEEPTPpew_3+SEEPTPpew_4)/REFUGETPpew_OUT*100
+PERCENTTRANS_TPpew = (TRANSTPpew_1+TRANSTPpew_2+TRANSTPpew_3)/REFUGETPpew_OUT*100
+
+;_____CUMULATIVE CALCULATIONS (metric tons)
+CUMUTPpew_IN = CONVEYOR(REFUGETPpew_IN,STOPTIME)
+CUMUTPpew_OUT = CONVEYOR(REFUGETPpew_OUT,STOPTIME)
+CUMU_REFTPpewDIFF = CONVEYOR(REFUGEDIFF_TPpew,STOPTIME)
+CUMU_SEEPTPpew = CONVEYOR(MASSSEEPTPpew, STOPTIME)
+CUMU_BURTPpew = CONVEYOR(MASSBURTPpew,STOPTIME)
+CUMU_TRANSTPpew = CONVEYOR(MASSTRANSTPpew,STOPTIME)
+CUMU_ALOADTPpew = CONVEYOR(MASSALOADTPpew, STOPTIME)
+CUMU_PRECIPTPpew = CONVEYOR(MASSPRECIPTPpew, STOPTIME)
+CUMU_SLOADINTPpew = CONVEYOR(sloadTPpew_in, STOPTIME)
+CUMU_SLOADOUTTPpew = CONVEYOR(sloadTPpew_out, STOPTIME)
+
+;_____MODEL BUDGET (metric tons)
+;TPpew mass
+MASS_TPpew1 = ((D_M0* INIT_Conc[tp,1,pew]) + (init_storage[tp,1,pew])) * gm_tonne * area[1]
+MASS_TPpew2 = ((D_M0* INIT_Conc[tp,2,pew]) + (init_storage[tp,2,pew])) * gm_tonne * area[2]
+MASS_TPpew3 = ((D_M0* INIT_Conc[tp,3,pew]) + (init_storage[tp,3,pew])) * gm_tonne * area[3]
+MASS_TPpew4 = (D_M0* INIT_Conc[tp,canal,pew]) * gm_tonne * area[canal]
+
+TOT_INITTPpew_m = MASS_TPpew1 + MASS_TPpew2 + MASS_TPpew3
+TOT_INITTPpew_c = MASS_TPpew4
+TOT_INITTPpew = (MASS_TPpew1 + MASS_TPpew2 + MASS_TPpew3 +MASS_TPpew4); units >> metric tons
+
+;FINAL TPpew MASS (metric tons)
+ENDTPpew_1 = (mass[tp,1,pew] + (area[1] * dmsta_store[tp, 1, pew])) * gm_tonne
+ENDTPpew_2 = (mass[tp,2,pew] + (area[2] * dmsta_store[tp, 2, pew])) * gm_tonne
+ENDTPpew_3 = (mass[tp,3,pew] + (area[3] * dmsta_store[tp, 3, pew])) * gm_tonne
+ENDTPpew_4 = (mass[tp,canal,pew]) * gm_tonne
+
+TOT_ENDTPpew_m = ENDTPpew_1 + ENDTPpew_2 + ENDTPpew_3
+TOT_ENDTPpew_c = ENDTPpew_4
+TOT_ENDTPpew = (ENDTPpew_1 + ENDTPpew_2 + ENDTPpew_3 + ENDTPpew_4); units >> metric tons
+
+TPpew_BUD = ((TOT_INITTPpew + CUMUTPpew_IN) - (TOT_ENDTPpew+CUMUTPpew_OUT))
+
+;_____DAILY ACCUMULATION (metric tons)
+Daily_TPpew_IN = CONVEYOR(REFUGETPpew_IN,1)
+Daily_TPpew_OUT = CONVEYOR(REFUGETPpew_OUT,1)
+Daily_REFDIFF_TPpew = CONVEYOR(REFUGEDIFF_TPpew,1)
+Daily_SEEPTPpew = CONVEYOR(MASSSEEPTPpew, 1)
+Daily_BURTPpew = CONVEYOR(MASSBURTPpew,1)
+Daily_TRANSTPpew = CONVEYOR(MASSTRANSTPpew,1)
+Daily_ALOADTPpew = CONVEYOR(MASSALOADTPpew, 1)
+Daily_PRECIPTPpew = CONVEYOR(MASSPRECIPTPpew, 1)
+Daily_SLOADINTPpew = CONVEYOR(sloadTPpew_in, 1)
+Daily_SLOADOUTTPpew = CONVEYOR(sloadTPpew_out, 1)
+
+;==============================================================================================
+
+;______SULFATE REFUGE MASS BALANCE
+
+aloadSO4_1_in = aload[so4,1] * gm_tonne
+aloadSO4_2_in = aload[so4,2] * gm_tonne
+aloadSO4_3_in = aload[so4,3] * gm_tonne
+aloadSO4_4_in = aload[so4,4] * gm_tonne
+
+sloadSO4_in = SO4LOAD * gm_tonne
+sloadSO4_out = SO4LOAD_OUT[so4,canal,emerg] * gm_tonne
+
+NETStructLoad_SO4 = sload[so4,canal,emerg]
+
+gloadSO4_1_out = gload[so4,1,emerg] * gm_tonne
+
+gloadSO4_2_out = gload[so4,2,emerg] * gm_tonne
+gloadSO4_3_out = gload[so4,3,emerg] * gm_tonne
+gloadSO4_4_out = gload[so4,canal,emerg] * gm_tonne
+
+rloadSO4_1_out = ABS(rload[so4,1,emerg]) * gm_tonne
+rloadSO4_2_out = ABS(rload[so4,2,emerg]) * gm_tonne
+rloadSO4_3_out = ABS(rload[so4,3,emerg]) * gm_tonne
+rloadSO4_4_out = 0; no reactive losses in canal 
+
+REFUGESO4_OUT = sloadSO4_out + gloadSO4_1_out + gloadSO4_2_out + gloadSO4_3_out + gloadSO4_4_out + rloadSO4_1_out + rloadSO4_2_out + rloadSO4_3_out + rloadSO4_4_out
+REFUGESO4_IN = sloadSO4_in + aloadSO4_1_in + aloadSO4_2_in + aloadSO4_3_in + aloadSO4_4_in
+REFUGEDIFF_SO4 = REFUGESO4_IN - REFUGESO4_OUT
+
+SEEPSO4_1 = conc[so4,1,emerg]*Gm*area[1] * gm_tonne; mass lost to seepage in cell 1
+SEEPSO4_2 = conc[so4,2,emerg]*Gm*area[2] * gm_tonne; mass lost to seepage in cell 2
+SEEPSO4_3 = conc[so4,3,emerg]*Gm*area[3] * gm_tonne; mass lost to seepage in cell 3
+SEEPSO4_4 = conc[so4,4,emerg]*Gc*area[4] * gm_tonne; mass lost to seepage in cell 4
+
+TRANSSO4_1 = conc[so4,1,emerg]*(transp*ET)*area[1] * gm_tonne; mass lost to transpiration in cell 1
+TRANSSO4_2 = conc[so4,2,emerg]*(transp*ET)*area[2] * gm_tonne; mass lost to transpiration in cell 2
+TRANSSO4_3 = conc[so4,3,emerg]*(transp*ET)*area[3] * gm_tonne; mass lost to transpiration in cell 3
+TRANSSO4_4 = 0; no mass lost to transpiration in cell 4
+
+PRECIPSO4_1 = area[1] * WetDep[so4] * P * gm_tonne
+PRECIPSO4_2 = area[2] * WetDep[so4] * P * gm_tonne
+PRECIPSO4_3 = area[3] * WetDep[so4] * P * gm_tonne
+PRECIPSO4_4 = area[4] * WetDep[so4] * P * gm_tonne
+
+MASSSEEPSO4 = SEEPSO4_1+SEEPSO4_2+SEEPSO4_3+SEEPSO4_4; units >> metric tons
+MASSRLOADSO4 = rloadSO4_1_out + rloadSO4_2_out + rloadSO4_3_out + rloadSO4_4_out; units >> metric tons
+MASSTRANSSO4= TRANSSO4_1+TRANSSO4_2+TRANSSO4_3; units >> metric tons
+MASSALOADSO4 = aloadSO4_1_in+aloadSO4_2_in+aloadSO4_3_in+aloadSO4_4_in; units >> metric tons
+MASSPRECIPSO4 = PRECIPSO4_1 + PRECIPSO4_2 + PRECIPSO4_3 + PRECIPSO4_4; units >> metric tons
+
+PERCENTSEEP_SO4 = (SEEPSO4_1+SEEPSO4_2+SEEPSO4_3+SEEPSO4_4)/REFUGESO4_OUT*100
+PERCENTTRANS_SO4 = (TRANSSO4_1+TRANSSO4_2+TRANSSO4_3)/REFUGESO4_OUT*100
+
+;_____CUMULATIVE CALCULATIONS (metric tons)
+CUMUSO4_IN = CONVEYOR(REFUGESO4_IN,STOPTIME)
+CUMUSO4_OUT = CONVEYOR(REFUGESO4_OUT,STOPTIME)
+CUMU_REFSO4DIFF = CONVEYOR(REFUGEDIFF_SO4,STOPTIME)
+CUMU_SEEPSO4 = CONVEYOR(MASSSEEPSO4, STOPTIME)
+CUMU_RLOADSO4 = CONVEYOR(MASSRLOADSO4, STOPTIME)
+CUMU_TRANSSO4 = CONVEYOR(MASSTRANSSO4,STOPTIME)
+CUMU_ALOADSO4 = CONVEYOR(MASSALOADSO4, STOPTIME)
+CUMU_PRECIPSO4 = CONVEYOR(MASSPRECIPSO4, STOPTIME)
+CUMU_SLOADINSO4 = CONVEYOR(sloadSO4_in, STOPTIME)
+CUMU_SLOADOUTSO4 = CONVEYOR(sloadSO4_out, STOPTIME)
+
+;_____MODEL BUDGET (metric tons)
+;SO4 mass
+MASS_SO4_1 = D_M0*area[1]* INIT_Conc[so4,1,emerg] * gm_tonne
+MASS_SO4_2 = D_M0*area[2]* INIT_Conc[so4,2,emerg] * gm_tonne
+MASS_SO4_3 = D_M0*area[3]* INIT_Conc[so4,3,emerg] * gm_tonne
+MASS_SO4_4 = D_C0*area[canal]* INIT_Conc[so4,4,emerg] * gm_tonne
+
+TOT_INITSO4m = MASS_SO4_1 + MASS_SO4_2 + MASS_SO4_3
+TOT_INITSO4c = MASS_SO4_4
+TOT_INITSO4 = (MASS_SO4_1 + MASS_SO4_2 + MASS_SO4_3 +MASS_SO4_4)
+
+;FINAL SULFATE MASS (metric tons)
+ENDSO4_1 = mass[so4,1,pew] * gm_tonne
+ENDSO4_2 = mass[so4,2,pew] * gm_tonne
+ENDSO4_3 = mass[so4,3,pew] * gm_tonne
+ENDSO4_4 = mass[so4,4,pew] * gm_tonne
+
+TOT_ENDmSO4 = ENDSO4_1 + ENDSO4_2 + ENDSO4_3
+TOT_ENDcSO4 = ENDSO4_4
+TOT_ENDSO4 = (ENDSO4_1 + ENDSO4_2 + ENDSO4_3 + ENDSO4_4)
+
+SO4_BUD = ((TOT_INITSO4 + CUMUSO4_IN) - (TOT_ENDSO4+CUMUSO4_OUT));  (metric tons)
+
+;_____DAILY ACCUMULATION (metric tons)
+Daily_SO4_IN = CONVEYOR(REFUGESO4_IN,1)
+Daily_SO4_OUT = CONVEYOR(REFUGESO4_OUT,1)
+Daily_REFSO4DIFF = CONVEYOR(REFUGEDIFF_SO4,1)
+Daily_SEEPSO4 = CONVEYOR(MASSSEEPSO4, 1)
+Daily_RLOADSO4 = CONVEYOR(MASSRLOADSO4, 1)
+Daily_TRANSSO4 = CONVEYOR(MASSTRANSSO4,1)
+Daily_ALOADSO4 = CONVEYOR(MASSALOADSO4, 1)
+Daily_PRECIPSO4 = CONVEYOR(MASSPRECIPSO4, 1)
+Daily_SLOADINSO4 = CONVEYOR(sloadSO4_in, 1)
+Daily_SLOADOUTSO4 = CONVEYOR(sloadSO4_out, 1)
+
+;==============================================================================================
+
+;_____REFUGE WATER BALANCE
+
+;INFLOWS
+Pflow_c = P*Canal_Area
+Pflow_m = P*Marsh_Area
+TOTP = Pflow_c + Pflow_m
+
+;OUTFLOWS
+ETflow_c = ETc*Canal_Area
+ETflow_m = ETm*Marsh_Area
+TOTET = ETflow_c +ETflow_m
+Gflow_c = Gc*Canal_Area
+Gflow_m = Gm*Marsh_Area
+TOTG = Gflow_c + Gflow_m
+
+;Cumulative calculations
+CUMU_QIN = CONVEYOR(Qin, STOPTIME)
+CUMU_P = CONVEYOR(TOTP,STOPTIME)
+CUMU_IN = CUMU_QIN + CUMU_P
+CUMU_QOUT = CONVEYOR(Qout,STOPTIME)
+CUMU_ET = CONVEYOR(TOTET, STOPTIME)
+CUMU_G = CONVEYOR(TOTG, STOPTIME)
+CUMU_OUT = CUMU_QOUT + CUMU_ET + CUMU_G
+
+;INITIAL VOLUME
+VOL_C = {IF TIME < STOPTIME THEN 0 ELSE} (Ecinit - Eoc) * Canal_Area
+VOL_M = {IF TIME < STOPTIME THEN 0 ELSE} (Eminit - Eo) * Marsh_Area
+
+;FINAL VOLUME
+ENDVOL_C = {IF TIME < STOPTIME THEN 0 ELSE} Vc
+ENDVOL_M = {IF TIME < STOPTIME THEN 0 ELSE} Vm
+
+WAT_BUD = (((VOL_C + VOL_M) + CUMU_IN) - ((ENDVOL_C+ENDVOL_M)+CUMU_OUT)){/(Canal_Area + Marsh_Area)*1000}
+
+;DAILY ACCUMULATION
+Daily_IN = Daily_QIN + Daily_P
+Daily_OUT = Daily_QOUT + Daily_ET + Daily_G
+Daily_QIN = CONVEYOR(Qin, 1)
+Daily_P = CONVEYOR(TOTP,1)
+Daily_QOUT = CONVEYOR(Qout,1)
+Daily_ET = CONVEYOR(TOTET, 1)
+Daily_G = CONVEYOR(TOTG, 1)
+
+;==============================================================================================
+
+;_____CL STRUCTURE LOADS
+;Daily averaged CL loads
+
+daily_G94A_ClLOAD 		= CONVEYOR(G94A_ClLOAD,1)
+daily_G94C_ClLOAD 		= CONVEYOR(G94C_ClLOAD,1)
+daily_G94D_ClLOAD 		= CONVEYOR(G94D_ClLOAD,1)
+daily_ACME1_ClLOAD 		= CONVEYOR(ACME1_ClLOAD,1)
+daily_S362_ClLOAD 		= CONVEYOR(S362_ClLOAD,1)
+daily_G300_ClLOAD		= CONVEYOR(G300_ClLOAD,1)
+daily_S5AS_ClLOAD		= CONVEYOR(S5AS_ClLOAD,1)
+daily_S5A_ClLOAD		= CONVEYOR(S5A_ClLOAD,1)
+daily_G301_ClLOAD		= CONVEYOR(G301_ClLOAD,1)
+daily_G310_ClLOAD		= CONVEYOR(G310_ClLOAD,1)
+daily_G251_ClLOAD		= CONVEYOR(G251_ClLOAD,1)
+daily_S6_ClLOAD		= CONVEYOR(S6_ClLOAD,1)
+daily_G338_ClLOAD		= CONVEYOR(G338_ClLOAD,1)
+
+;==============================================================================================
+
+;_____SEPARATE COMPARTMENTS
+;Daily average CL
+
+Daily_seepcl_1 = CONVEYOR(SEEPCL_1,1)
+Daily_seepcl_2 = CONVEYOR(SEEPCL_2,1)
+Daily_seepcl_3 = CONVEYOR(SEEPCL_3,1)
+Daily_seepcl_4 = CONVEYOR(SEEPCL_4,1)
+
+Daily_precipcl_1 = CONVEYOR(PRECIPCL_1,1)
+Daily_precipcl_2 = CONVEYOR(PRECIPCL_2,1)
+Daily_precipcl_3 = CONVEYOR(PRECIPCL_3,1)
+Daily_precipcl_4 = CONVEYOR(PRECIPCL_4,1)
+
+Daily_aloadcl_1 = CONVEYOR(aloadCL_1_in,1)
+Daily_aloadcl_2 = CONVEYOR(aloadCL_2_in,1)
+Daily_aloadcl_3 = CONVEYOR(aloadCL_3_in,1)
+Daily_aloadcl_4 = CONVEYOR(aloadCL_4_in,1)
+
+Daily_transcl_1 = CONVEYOR(TRANSCL_1,1)
+Daily_transcl_2 = CONVEYOR(TRANSCL_2,1)
+Daily_transcl_3 = CONVEYOR(TRANSCL_3,1)
+Daily_transcl_4 = CONVEYOR(TRANSCL_4,1)
+
+;==============================================================================================
